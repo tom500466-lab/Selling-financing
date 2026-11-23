@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>融資整戶維持率與賣出處分試算系統（含庫存圖片自動辨識）</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --navy: #1e293b;
+    --slate: #334155;
+    --bg: #f1f5f9;
+    --card: #ffffff;
+    --input-bg: #fef9c3;
+    --input-border: #d97706;
+    --border: #cbd5e1;
+    --accent: #0284c7;
+    --green-bg: #dcfce7;
+    --green-txt: #166534;
+    --red-bg: #fee2e2;
+    --red-txt: #991b1b;
+  }
+  * { box-sizing: border-box; font-family: "Microsoft JhengHei", -apple-system, BlinkMacSystemFont, sans-serif; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: #0f172a; font-size: 14px; }
+  .container { max-width: 1280px; margin: 0 auto; }
+  .header {
+    background: var(--navy); color: #fff; padding: 18px 24px; border-radius: 10px 10px 0 0;
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  .header h1 { margin: 0; font-size: 20px; letter-spacing: 0.5px; }
+  .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    border: none; padding: 8px 14px; border-radius: 6px; font-weight: bold; cursor: pointer;
+    font-size: 13px; display: inline-flex; align-items: center; gap: 6px; transition: 0.15s;
+  }
+  .btn-primary { background: #0284c7; color: #fff; }
+  .btn-primary:hover { background: #0369a1; }
+  .btn-success { background: #16a34a; color: #fff; }
+  .btn-success:hover { background: #15803d; }
+  .btn-outline { background: #334155; color: #fff; border: 1px solid #64748b; }
+  .btn-outline:hover { background: #475569; }
+  .btn-danger { background: #dc2626; color: #fff; padding: 4px 8px; font-size: 12px; }
+  .sub-banner {
+    background: #e0f2fe; color: #0c4a6e; padding: 10px 24px; font-size: 13px;
+    border-bottom: 1px solid var(--border); margin-bottom: 16px; border-radius: 0 0 10px 10px;
+  }
+  .card {
+    background: var(--card); border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    margin-bottom: 18px; overflow: hidden; border: 1px solid var(--border);
+  }
+  .card-title {
+    background: var(--slate); color: #fff; padding: 10px 18px; font-weight: bold; font-size: 15px;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+  }
+  .card-body { padding: 16px 18px; }
+
+  /* OCR Upload Zone */
+  .ocr-zone {
+    border: 2px dashed #0284c7; background: #f0f9ff; border-radius: 8px; padding: 18px;
+    text-align: center; cursor: pointer; transition: 0.2s;
+  }
+  .ocr-zone:hover, .ocr-zone.dragover { background: #e0f2fe; border-color: #0369a1; }
+  .ocr-grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; margin-top: 12px; }
+  @media (max-width: 850px) { .ocr-grid { grid-template-columns: 1fr; } }
+  .ocr-preview-box {
+    border: 1px solid var(--border); border-radius: 6px; padding: 10px; background: #f8fafc;
+    max-height: 260px; overflow: auto; text-align: center;
+  }
+  .ocr-preview-box img { max-width: 100%; border-radius: 4px; }
+  textarea.ocr-raw {
+    width: 100%; height: 220px; border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px; font-family: monospace; font-size: 12px; resize: vertical;
+  }
+  .progress-bar {
+    width: 100%; height: 10px; background: #e2e8f0; border-radius: 5px; overflow: hidden;
+    margin: 10px 0; display: none;
+  }
+  .progress-fill { height: 100%; background: #0284c7; width: 0%; transition: width 0.2s; }
+
+  /* KPI Grid */
+  .kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  @media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  .kpi-box {
+    background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    text-align: center;
+  }
+  .kpi-box.manual { background: var(--input-bg); border: 2px solid var(--input-border); }
+  .kpi-lbl { font-size: 12px; color: #475569; font-weight: bold; margin-bottom: 6px; }
+  .kpi-val { font-size: 20px; font-weight: bold; color: #0f172a; }
+  .kpi-input {
+    width: 100%; text-align: center; font-size: 18px; font-weight: bold; color: #92400e;
+    background: transparent; border: none; border-bottom: 1px dashed #d97706; outline: none;
+  }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 820px; }
+  th {
+    background: var(--navy); color: #fff; padding: 9px 8px; font-size: 12.5px;
+    border: 1px solid #475569; text-align: center; white-space: nowrap;
+  }
+  td {
+    padding: 6px 8px; border: 1px solid var(--border); font-size: 13px; text-align: right;
+  }
+  tr:nth-child(even) td { background: #f8fafc; }
+  tr.total-row td { background: #e0f2fe; font-weight: bold; border-top: 2px solid var(--navy); }
+  td.center { text-align: center; }
+  td.manual-cell { background: var(--input-bg) !important; padding: 3px 5px; }
+  input.tbl-input, select.tbl-input {
+    width: 100%; padding: 5px 6px; border: 1px solid var(--input-border); border-radius: 4px;
+    background: #fffbeb; color: #92400e; font-weight: bold; font-size: 13px; text-align: right;
+  }
+  input.tbl-input.txt-center, select.tbl-input.txt-center { text-align: center; }
+  .badge-pass { background: var(--green-bg) !important; color: var(--green-txt) !important; font-weight: bold; }
+  .badge-fail { background: var(--red-bg) !important; color: var(--red-txt) !important; font-weight: bold; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .tab-btn {
+    padding: 8px 16px; border: 1px solid var(--border); background: #fff; border-radius: 6px;
+    cursor: pointer; font-weight: bold; color: #475569;
+  }
+  .tab-btn.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <h1>融資整戶維持率與賣出處分試算系統</h1>
+      <div style="font-size:12px; color:#cbd5e1; margin-top:4px;">支援庫存對帳單照片自動辨識匯入（OCR）｜10檔標的擴充｜10筆賣出模擬｜一鍵匯出 Excel</div>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-outline" onclick="syncFromDetail()">🔄 依明細表重算總市值/總融資</button>
+      <button class="btn btn-success" onclick="exportToExcel()">📥 匯出最新 Excel (.xlsx)</button>
+    </div>
+  </div>
+  <div class="sub-banner">
+    <strong>操作提示：</strong>黃色欄位皆可手動修改。若要處理新客戶，可直接在下方<strong>「上傳庫存照片自動辨識區」</strong>拖入或貼上（Ctrl+V）客戶對帳單截圖，系統會自動抓取每筆股數、成交價、融資金額與收盤價並帶入試算表！
+  </div>
+
+  <!-- OCR 圖片上傳與自動辨識區 -->
+  <div class="card">
+    <div class="card-title">
+      <span>📷 客戶庫存照片自動辨識匯入區（支援拖曳上傳、選取圖片、或直接 Ctrl+V 貼上截圖）</span>
+      <span id="ocrStatus" style="font-size:12px; color:#fde047;">待機中（目前已預載預設庫存 28 筆）</span>
+    </div>
+    <div class="card-body">
+      <div class="ocr-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleImageFile(this.files[0])">
+        <div style="font-size:15px; font-weight:bold; color:#0369a1;">點擊選擇庫存對帳單照片，或將圖片拖曳至此處（也可直接按 Ctrl+V 貼上螢幕截圖）</div>
+        <div style="font-size:12px; color:#475569; margin-top:4px;">提示：建議裁切保留「股票種類、股數、結帳日、成交價、融資金額、收盤價」表格區域，辨識準確率最高！</div>
+      </div>
+      <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
+
+      <div id="ocrResultPanel" style="display:none; margin-top:14px;">
+        <div class="ocr-grid">
+          <div>
+            <div style="font-weight:bold; margin-bottom:6px;">1. 圖片預覽：</div>
+            <div class="ocr-preview-box"><img id="previewImg" src="" alt="庫存預覽"></div>
+          </div>
+          <div>
+            <div style="font-weight:bold; margin-bottom:6px; display:flex; justify-content:space-between;">
+              <span>2. 辨識文字與數值解析（若個別數字有誤可直接微調文字後重新解析）：</span>
+            </div>
+            <textarea class="ocr-raw" id="ocrRawText" placeholder="辨識出的文字將顯示於此..."></textarea>
+            <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn btn-primary" onclick="parseAndApplyOCR(true)">✅ 覆蓋現有庫存並自動帶入計算</button>
+              <button class="btn btn-outline" onclick="parseAndApplyOCR(false)">➕ 附加至現有庫存明細</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 一、目前整戶融資概況 -->
+  <div class="card">
+    <div class="card-title">
+      <span>一、目前整戶融資概況（黃色欄位可直接手動輸入，並自動帶入下方試算）</span>
+    </div>
+    <div class="card-body">
+      <div class="kpi-grid">
+        <div class="kpi-box manual">
+          <div class="kpi-lbl">目前擔保品總市值 (元)【手動】</div>
+          <input type="number" id="totalMarketValue" class="kpi-input" value="33726500" oninput="recalcAll()">
+        </div>
+        <div class="kpi-box manual">
+          <div class="kpi-lbl">目前融資總金額 (元)【手動】</div>
+          <input type="number" id="totalMarginLoan" class="kpi-input" value="27585000" oninput="recalcAll()">
+        </div>
+        <div class="kpi-box" id="kpiCurrentRatioBox">
+          <div class="kpi-lbl">目前整戶維持率 (%)</div>
+          <div class="kpi-val" id="currentRatioDisplay">122.26%</div>
+        </div>
+        <div class="kpi-box manual">
+          <div class="kpi-lbl">追繳門檻 (%)【手動】</div>
+          <input type="number" id="thresholdPct" class="kpi-input" value="130" step="0.5" oninput="recalcAll()">
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-lbl">距門檻擔保品市值缺口 (元)</div>
+          <div class="kpi-val" id="shortfallDisplay">2,134,000</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 二、個股融資庫存彙總（10格） -->
+  <div class="card">
+    <div class="card-title">
+      <span>二、個股融資庫存彙總（共 10 格：可手動輸入或新增標的名稱，自動彙總明細數據）</span>
+      <button class="btn btn-outline" onclick="autoFillSummaryStocks()">✨ 自動帶入明細表所有不重複標的</button>
+    </div>
+    <div class="card-body table-wrap">
+      <table id="summaryTable">
+        <thead>
+          <tr>
+            <th style="width:50px;">格次</th>
+            <th style="width:130px;">股票名稱 (手動)</th>
+            <th>總持有股數</th>
+            <th>加權平均買價</th>
+            <th>最新收盤價</th>
+            <th>目前總市值</th>
+            <th>目前總融資金額</th>
+            <th>平均實際成數</th>
+            <th>平均每股融資額</th>
+            <th>個股平均維持率</th>
+          </tr>
+        </thead>
+        <tbody id="summaryBody"></tbody>
+        <tfoot>
+          <tr class="total-row">
+            <td colspan="2" class="center">彙總表合計</td>
+            <td id="sumTotalShares">0</td>
+            <td class="center">-</td>
+            <td class="center">-</td>
+            <td id="sumTotalMV">0</td>
+            <td id="sumTotalLoan">0</td>
+            <td class="center">-</td>
+            <td class="center">-</td>
+            <td id="sumTotalRatio">0.00%</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- 三、賣出個股試算區（10格） -->
+  <div class="card">
+    <div class="card-title">
+      <span>三、賣出個股試算區（共 10 格：連動上方手動總市值、總融資與追繳門檻）</span>
+      <button class="btn btn-outline" onclick="clearSimRows()">🧹 清空第 3～10 格模擬列</button>
+    </div>
+    <div class="card-body table-wrap">
+      <datalist id="stockSuggestions"></datalist>
+      <table id="simTable">
+        <thead>
+          <tr>
+            <th style="width:45px;">格次</th>
+            <th style="width:120px;">欲賣出個股<br>(選擇或輸入)</th>
+            <th style="width:105px;">賣出股數<br>(手動輸入)</th>
+            <th style="width:110px;">預計出售價格<br>(空白帶收盤價)</th>
+            <th style="width:105px;">融資成數(%)<br>(空白帶帳面值)</th>
+            <th style="width:155px;">償還沖銷方法</th>
+            <th>賣出減少市值</th>
+            <th>賣出償還融資額</th>
+            <th>交割現金差額<br>(正=拿回/負=自備)</th>
+            <th>單筆模擬後<br>整戶維持率</th>
+          </tr>
+        </thead>
+        <tbody id="simBody"></tbody>
+        <tfoot>
+          <tr class="total-row">
+            <td colspan="6" class="center">【多筆同時賣出合併試算】（加總第 3～10 格自訂模擬列，連動上方總市值與總融資）</td>
+            <td id="combSoldMV">0</td>
+            <td id="combSoldLoan">0</td>
+            <td id="combCashDiff">0</td>
+            <td id="combNewRatio">122.26%</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- 四、庫存明細表（可自由增刪修改） -->
+  <div class="card">
+    <div class="card-title">
+      <span>四、融資庫存明細表（由照片自動匯入或手動增修，供先進先出法精準計算）</span>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary" onclick="addDetailRow()">➕ 新增一筆明細</button>
+        <button class="btn btn-outline" onclick="clearDetailRows()">🗑️ 清空全部明細</button>
+      </div>
+    </div>
+    <div class="card-body table-wrap">
+      <table id="detailTable">
+        <thead>
+          <tr>
+            <th style="width:45px;">序號</th>
+            <th>股票名稱</th>
+            <th>種類</th>
+            <th>持有股數</th>
+            <th>結帳日</th>
+            <th>買進成交價</th>
+            <th>原始融資金額</th>
+            <th>最新收盤價</th>
+            <th>目前擔保品市值</th>
+            <th>個股維持率</th>
+            <th style="width:60px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="detailBody"></tbody>
+        <tfoot>
+          <tr class="total-row">
+            <td colspan="3" class="center">明細表整戶合計</td>
+            <td id="detTotalShares">0</td>
+            <td class="center">-</td>
+            <td class="center">-</td>
+            <td id="detTotalLoan">0</td>
+            <td class="center">-</td>
+            <td id="detTotalMV">0</td>
+            <td id="detTotalRatio">0.00%</td>
+            <td class="center">-</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// Initial preset inventory data (anonymized, exact numbers from statement)
+let detailRows = [
+  { stock: "光洋科", type: "資", shares: 9000, date: "1151123", buyPrice: 76.60, loan: 413000, closePrice: 70.00 },
+  { stock: "光洋科", type: "資", shares: 3000, date: "1151123", buyPrice: 76.70, loan: 138000, closePrice: 70.00 },
+  { stock: "光洋科", type: "資", shares: 38000, date: "1151123", buyPrice: 76.80, loan: 1751000, closePrice: 70.00 },
+  { stock: "光洋科", type: "資", shares: 5000, date: "1151123", buyPrice: 74.80, loan: 224000, closePrice: 70.00 },
+  { stock: "光洋科", type: "資", shares: 5000, date: "1151123", buyPrice: 74.80, loan: 224000, closePrice: 70.00 },
+  { stock: "光洋科", type: "資", shares: 10000, date: "1151123", buyPrice: 75.00, loan: 450000, closePrice: 70.00 },
+  { stock: "德律", type: "資", shares: 3000, date: "1150504", buyPrice: 344.50, loan: 619000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 8000, date: "1150504", buyPrice: 337.00, loan: 1617000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 5000, date: "1150504", buyPrice: 344.00, loan: 1032000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 8000, date: "1150505", buyPrice: 357.00, loan: 1713000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 4000, date: "1150505", buyPrice: 353.50, loan: 848000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 1000, date: "1150505", buyPrice: 354.00, loan: 212000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 5000, date: "1150505", buyPrice: 355.00, loan: 1065000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 10000, date: "1150827", buyPrice: 276.50, loan: 1659000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 5000, date: "1150910", buyPrice: 270.50, loan: 811000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 5000, date: "1150910", buyPrice: 271.00, loan: 813000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 10000, date: "1150910", buyPrice: 270.50, loan: 1623000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 8000, date: "1151103", buyPrice: 254.00, loan: 1219000, closePrice: 191.50 },
+  { stock: "德律", type: "資", shares: 15000, date: "1151103", buyPrice: 252.50, loan: 2272000, closePrice: 191.50 },
+  { stock: "營邦", type: "資", shares: 6000, date: "1151110", buyPrice: 520.00, loan: 1872000, closePrice: 434.50 },
+  { stock: "營邦", type: "資", shares: 2000, date: "1151110", buyPrice: 520.00, loan: 624000, closePrice: 434.50 },
+  { stock: "營邦", type: "資", shares: 2000, date: "1151110", buyPrice: 520.00, loan: 624000, closePrice: 434.50 },
+  { stock: "營邦", type: "資", shares: 2000, date: "1151110", buyPrice: 520.00, loan: 624000, closePrice: 434.50 },
+  { stock: "營邦", type: "資", shares: 5000, date: "1151119", buyPrice: 583.00, loan: 1749000, closePrice: 434.50 },
+  { stock: "營邦", type: "資", shares: 6000, date: "1151120", buyPrice: 529.00, loan: 1904000, closePrice: 434.50 },
+  { stock: "營邦", type: "資", shares: 1000, date: "1151123", buyPrice: 494.50, loan: 296000, closePrice: 434.50 },
+  { stock: "營邦", type: "資", shares: 1000, date: "1151123", buyPrice: 495.50, loan: 297000, closePrice: 434.50 },
+  { stock: "營邦", type: "資", shares: 3000, date: "1151123", buyPrice: 496.00, loan: 892000, closePrice: 434.50 }
+];
+
+// 10 Summary Stock Slots
+let summaryStocks = ["光洋科", "德律", "營邦", "", "", "", "", "", "", ""];
+
+// 10 Sell Simulator Slots
+let simRows = [
+  { stock: "德律", shares: 20000, sellPrice: "191.50", marginRatio: "", method: "FIFO" },
+  { stock: "德律", shares: 20000, sellPrice: "191.50", marginRatio: "", method: "AVG" },
+  { stock: "", shares: 0, sellPrice: "", marginRatio: "", method: "FIFO" },
+  { stock: "", shares: 0, sellPrice: "", marginRatio: "", method: "FIFO" },
+  { stock: "", shares: 0, sellPrice: "", marginRatio: "", method: "FIFO" },
+  { stock: "", shares: 0, sellPrice: "", marginRatio: "", method: "FIFO" },
+  { stock: "", shares: 0, sellPrice: "", marginRatio: "", method: "FIFO" },
+  { stock: "", shares: 0, sellPrice: "", marginRatio: "", method: "FIFO" },
+  { stock: "", shares: 0, sellPrice: "", marginRatio: "", method: "FIFO" },
+  { stock: "", shares: 0, sellPrice: "", marginRatio: "", method: "FIFO" }
+];
+
+const fmtInt = (n) => Math.round(n).toLocaleString("zh-TW");
+const fmtDec = (n) => Number(n).toLocaleString("zh-TW", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtPct = (n) => (n * 100).toFixed(2) + "%";
+
+function initTables() {
+  // Build 10 Summary Rows
+  const sumBody = document.getElementById("summaryBody");
+  sumBody.innerHTML = "";
+  for (let i = 0; i < 10; i++) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="center">${i + 1}</td>
+      <td class="manual-cell"><input type="text" class="tbl-input txt-center" id="sumStock_${i}" value="${summaryStocks[i]}" placeholder="輸入標的..." oninput="summaryStocks[${i}]=this.value.trim(); recalcAll();"></td>
+      <td id="sumShares_${i}">0</td>
+      <td id="sumAvgBuy_${i}">0.00</td>
+      <td id="sumClose_${i}">0.00</td>
+      <td id="sumMV_${i}">0</td>
+      <td id="sumLoan_${i}">0</td>
+      <td id="sumRatio_${i}">0.0%</td>
+      <td id="sumLoanPerShare_${i}">0.00</td>
+      <td id="sumMaint_${i}">0.00%</td>
+    `;
+    sumBody.appendChild(tr);
+  }
+
+  // Build 10 Simulator Rows
+  const simBody = document.getElementById("simBody");
+  simBody.innerHTML = "";
+  for (let i = 0; i < 10; i++) {
+    const r = simRows[i];
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="center">${i + 1}</td>
+      <td class="manual-cell"><input type="text" list="stockSuggestions" class="tbl-input txt-center" id="simStock_${i}" value="${r.stock}" placeholder="選擇/輸入" oninput="simRows[${i}].stock=this.value.trim(); recalcAll();"></td>
+      <td class="manual-cell"><input type="number" class="tbl-input" id="simShares_${i}" value="${r.shares || ''}" placeholder="0" oninput="simRows[${i}].shares=Number(this.value)||0; recalcAll();"></td>
+      <td class="manual-cell"><input type="number" step="0.05" class="tbl-input" id="simPrice_${i}" value="${r.sellPrice}" placeholder="自動收盤價" oninput="simRows[${i}].sellPrice=this.value; recalcAll();"></td>
+      <td class="manual-cell"><input type="number" step="1" class="tbl-input" id="simMargin_${i}" value="${r.marginRatio}" placeholder="自動帳面" oninput="simRows[${i}].marginRatio=this.value; recalcAll();"></td>
+      <td class="manual-cell">
+        <select class="tbl-input txt-center" id="simMethod_${i}" onchange="simRows[${i}].method=this.value; recalcAll();">
+          <option value="FIFO" ${r.method === "FIFO" ? "selected" : ""}>先進先出(券商預設)</option>
+          <option value="AVG" ${r.method === "AVG" ? "selected" : ""}>帳面均攤(按平均成數)</option>
+        </select>
+      </td>
+      <td id="simSoldMV_${i}">0</td>
+      <td id="simSoldLoan_${i}">0</td>
+      <td id="simCashDiff_${i}">0</td>
+      <td id="simNewRatio_${i}" style="font-weight:bold;">0.00%</td>
+    `;
+    simBody.appendChild(tr);
+  }
+
+  renderDetailTable();
+  recalcAll();
+}
+
+function renderDetailTable() {
+  const detBody = document.getElementById("detailBody");
+  detBody.innerHTML = "";
+  detailRows.forEach((row, idx) => {
+    const mv = row.shares * row.closePrice;
+    const ratio = row.loan > 0 ? mv / row.loan : 0;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="center">${idx + 1}</td>
+      <td class="manual-cell"><input type="text" class="tbl-input txt-center" value="${row.stock}" oninput="detailRows[${idx}].stock=this.value.trim(); recalcAll();"></td>
+      <td class="manual-cell"><input type="text" class="tbl-input txt-center" style="width:45px;" value="${row.type}" oninput="detailRows[${idx}].type=this.value.trim();"></td>
+      <td class="manual-cell"><input type="number" class="tbl-input" value="${row.shares}" oninput="detailRows[${idx}].shares=Number(this.value)||0; recalcAll();"></td>
+      <td class="manual-cell"><input type="text" class="tbl-input txt-center" value="${row.date}" oninput="detailRows[${idx}].date=this.value.trim();"></td>
+      <td class="manual-cell"><input type="number" step="0.05" class="tbl-input" value="${row.buyPrice}" oninput="detailRows[${idx}].buyPrice=Number(this.value)||0; recalcAll();"></td>
+      <td class="manual-cell"><input type="number" class="tbl-input" value="${row.loan}" oninput="detailRows[${idx}].loan=Number(this.value)||0; recalcAll();"></td>
+      <td class="manual-cell"><input type="number" step="0.05" class="tbl-input" value="${row.closePrice}" oninput="detailRows[${idx}].closePrice=Number(this.value)||0; recalcAll();"></td>
+      <td id="detRowMV_${idx}">${fmtInt(mv)}</td>
+      <td id="detRowRatio_${idx}">${fmtPct(ratio)}</td>
+      <td class="center"><button class="btn btn-danger" onclick="removeDetailRow(${idx})">刪除</button></td>
+    `;
+    detBody.appendChild(tr);
+  });
+}
+
+function addDetailRow() {
+  detailRows.push({ stock: "", type: "資", shares: 0, date: "", buyPrice: 0, loan: 0, closePrice: 0 });
+  renderDetailTable();
+  recalcAll();
+}
+
+function removeDetailRow(idx) {
+  detailRows.splice(idx, 1);
+  renderDetailTable();
+  recalcAll();
+}
+
+function clearDetailRows() {
+  if (!confirm("確定要清空所有庫存明細列嗎？")) return;
+  detailRows = [];
+  renderDetailTable();
+  recalcAll();
+}
+
+function syncFromDetail() {
+  let totMV = 0, totLoan = 0;
+  detailRows.forEach(r => {
+    totMV += (Number(r.shares) || 0) * (Number(r.closePrice) || 0);
+    totLoan += (Number(r.loan) || 0);
+  });
+  document.getElementById("totalMarketValue").value = Math.round(totMV);
+  document.getElementById("totalMarginLoan").value = Math.round(totLoan);
+  recalcAll();
+}
+
+function autoFillSummaryStocks() {
+  const uniqueStocks = [...new Set(detailRows.map(r => r.stock).filter(s => s !== ""))];
+  for (let i = 0; i < 10; i++) {
+    summaryStocks[i] = uniqueStocks[i] || "";
+    document.getElementById(`sumStock_${i}`).value = summaryStocks[i];
+  }
+  recalcAll();
+}
+
+function clearSimRows() {
+  for (let i = 2; i < 10; i++) {
+    simRows[i] = { stock: "", shares: 0, sellPrice: "", marginRatio: "", method: "FIFO" };
+    document.getElementById(`simStock_${i}`).value = "";
+    document.getElementById(`simShares_${i}`).value = "";
+    document.getElementById(`simPrice_${i}`).value = "";
+    document.getElementById(`simMargin_${i}`).value = "";
+    document.getElementById(`simMethod_${i}`).value = "FIFO";
+  }
+  recalcAll();
+}
+
+function recalcAll() {
+  const totalMV = Number(document.getElementById("totalMarketValue").value) || 0;
+  const totalLoan = Number(document.getElementById("totalMarginLoan").value) || 0;
+  const threshold = (Number(document.getElementById("thresholdPct").value) || 130) / 100;
+
+  const curRatio = totalLoan > 0 ? totalMV / totalLoan : 0;
+  const shortfall = Math.max(0, totalLoan * threshold - totalMV);
+
+  const curRatioEl = document.getElementById("currentRatioDisplay");
+  const curRatioBox = document.getElementById("kpiCurrentRatioBox");
+  curRatioEl.textContent = fmtPct(curRatio);
+  curRatioBox.classList.remove("badge-pass", "badge-fail");
+  if (totalLoan > 0) {
+    curRatioBox.classList.add(curRatio >= threshold ? "badge-pass" : "badge-fail");
+  }
+  document.getElementById("shortfallDisplay").textContent = fmtInt(shortfall);
+
+  // Update Detail Table totals & row values
+  let detShares = 0, detLoan = 0, detMV = 0;
+  detailRows.forEach((r, idx) => {
+    const mv = (Number(r.shares) || 0) * (Number(r.closePrice) || 0);
+    const rt = r.loan > 0 ? mv / r.loan : 0;
+    detShares += Number(r.shares) || 0;
+    detLoan += Number(r.loan) || 0;
+    detMV += mv;
+    const mvCell = document.getElementById(`detRowMV_${idx}`);
+    const rtCell = document.getElementById(`detRowRatio_${idx}`);
+    if (mvCell) mvCell.textContent = fmtInt(mv);
+    if (rtCell) rtCell.textContent = fmtPct(rt);
+  });
+  document.getElementById("detTotalShares").textContent = fmtInt(detShares);
+  document.getElementById("detTotalLoan").textContent = fmtInt(detLoan);
+  document.getElementById("detTotalMV").textContent = fmtInt(detMV);
+  document.getElementById("detTotalRatio").textContent = fmtPct(detLoan > 0 ? detMV / detLoan : 0);
+
+  // Build stock stats map from detailRows
+  const stockStats = {};
+  detailRows.forEach(r => {
+    if (!r.stock) return;
+    if (!stockStats[r.stock]) {
+      stockStats[r.stock] = { shares: 0, costSum: 0, closeSum: 0, closeCount: 0, mv: 0, loan: 0, rows: [] };
+    }
+    const st = stockStats[r.stock];
+    st.shares += r.shares;
+    st.costSum += r.shares * r.buyPrice;
+    if (r.closePrice > 0) { st.closeSum += r.closePrice; st.closeCount += 1; }
+    st.mv += r.shares * r.closePrice;
+    st.loan += r.loan;
+    st.rows.push(r);
+  });
+
+  // Update Datalist suggestions
+  const dl = document.getElementById("stockSuggestions");
+  const allNames = new Set([...summaryStocks.filter(Boolean), ...Object.keys(stockStats)]);
+  dl.innerHTML = [...allNames].map(name => `<option value="${name}">`).join("");
+
+  // Update 10 Summary Rows
+  let sumShares = 0, sumMV = 0, sumLoan = 0;
+  for (let i = 0; i < 10; i++) {
+    const name = summaryStocks[i];
+    const st = stockStats[name];
+    if (name && st && st.shares > 0) {
+      const avgBuy = st.costSum / st.shares;
+      const closePx = st.closeCount > 0 ? st.closeSum / st.closeCount : 0;
+      const ratio = st.costSum > 0 ? st.loan / st.costSum : 0;
+      const loanPerSh = st.loan / st.shares;
+      const maint = st.loan > 0 ? st.mv / st.loan : 0;
+
+      document.getElementById(`sumShares_${i}`).textContent = fmtInt(st.shares);
+      document.getElementById(`sumAvgBuy_${i}`).textContent = fmtDec(avgBuy);
+      document.getElementById(`sumClose_${i}`).textContent = fmtDec(closePx);
+      document.getElementById(`sumMV_${i}`).textContent = fmtInt(st.mv);
+      document.getElementById(`sumLoan_${i}`).textContent = fmtInt(st.loan);
+      document.getElementById(`sumRatio_${i}`).textContent = (ratio * 100).toFixed(1) + "%";
+      document.getElementById(`sumLoanPerShare_${i}`).textContent = fmtDec(loanPerSh);
+      document.getElementById(`sumMaint_${i}`).textContent = fmtPct(maint);
+
+      sumShares += st.shares;
+      sumMV += st.mv;
+      sumLoan += st.loan;
+    } else {
+      document.getElementById(`sumShares_${i}`).textContent = "0";
+      document.getElementById(`sumAvgBuy_${i}`).textContent = "0.00";
+      document.getElementById(`sumClose_${i}`).textContent = "0.00";
+      document.getElementById(`sumMV_${i}`).textContent = "0";
+      document.getElementById(`sumLoan_${i}`).textContent = "0";
+      document.getElementById(`sumRatio_${i}`).textContent = "0.0%";
+      document.getElementById(`sumLoanPerShare_${i}`).textContent = "0.00";
+      document.getElementById(`sumMaint_${i}`).textContent = "0.00%";
+    }
+  }
+  document.getElementById("sumTotalShares").textContent = fmtInt(sumShares);
+  document.getElementById("sumTotalMV").textContent = fmtInt(sumMV);
+  document.getElementById("sumTotalLoan").textContent = fmtInt(sumLoan);
+  document.getElementById("sumTotalRatio").textContent = fmtPct(sumLoan > 0 ? sumMV / sumLoan : 0);
+
+  // Update 10 Simulator Rows
+  let combMV = 0, combLoan = 0;
+  for (let i = 0; i < 10; i++) {
+    const r = simRows[i];
+    const st = stockStats[r.stock];
+    let soldMV = 0, soldLoan = 0;
+
+    if (r.stock && r.shares > 0) {
+      const defaultClose = (st && st.closeCount > 0) ? (st.closeSum / st.closeCount) : 0;
+      const execPrice = r.sellPrice !== "" ? Number(r.sellPrice) : defaultClose;
+      soldMV = r.shares * execPrice;
+
+      if (r.marginRatio !== "") {
+        const mRatio = Number(r.marginRatio) / 100;
+        const basePrice = (st && st.shares > 0) ? (st.costSum / st.shares) : execPrice;
+        soldLoan = r.shares * basePrice * mRatio;
+      } else if (st && st.shares > 0) {
+        if (r.method === "FIFO") {
+          let rem = r.shares;
+          for (const dRow of st.rows) {
+            if (rem <= 0) break;
+            const take = Math.min(rem, dRow.shares);
+            soldLoan += (dRow.shares > 0 ? (dRow.loan / dRow.shares) * take : 0);
+            rem -= take;
+          }
+        } else {
+          soldLoan = r.shares * (st.loan / st.shares);
+        }
+      }
+    }
+
+    const cashDiff = soldMV - soldLoan;
+    const remLoan = totalLoan - soldLoan;
+    const newRatio = (r.stock && r.shares > 0) ? (remLoan > 0 ? (totalMV - soldMV) / remLoan : 0) : curRatio;
+
+    document.getElementById(`simSoldMV_${i}`).textContent = fmtInt(soldMV);
+    document.getElementById(`simSoldLoan_${i}`).textContent = fmtInt(soldLoan);
+    const diffEl = document.getElementById(`simCashDiff_${i}`);
+    diffEl.textContent = (cashDiff > 0 ? "+" : "") + fmtInt(cashDiff);
+    diffEl.style.color = cashDiff < 0 ? "#b91c1c" : (cashDiff > 0 ? "#15803d" : "#0f172a");
+
+    const ratioEl = document.getElementById(`simNewRatio_${i}`);
+    ratioEl.textContent = fmtPct(newRatio);
+    ratioEl.classList.remove("badge-pass", "badge-fail");
+    if (r.stock && r.shares > 0) {
+      ratioEl.classList.add(newRatio >= threshold ? "badge-pass" : "badge-fail");
+    }
+
+    if (i >= 2) {
+      combMV += soldMV;
+      combLoan += soldLoan;
+    }
+  }
+
+  const combDiff = combMV - combLoan;
+  const combRemLoan = totalLoan - combLoan;
+  const combRatio = combRemLoan > 0 ? (totalMV - combMV) / combRemLoan : 0;
+  document.getElementById("combSoldMV").textContent = fmtInt(combMV);
+  document.getElementById("combSoldLoan").textContent = fmtInt(combLoan);
+  document.getElementById("combCashDiff").textContent = (combDiff > 0 ? "+" : "") + fmtInt(combDiff);
+  const combRatioEl = document.getElementById("combNewRatio");
+  combRatioEl.textContent = fmtPct(combRatio);
+  combRatioEl.classList.remove("badge-pass", "badge-fail");
+  combRatioEl.classList.add(combRatio >= threshold ? "badge-pass" : "badge-fail");
+}
+
+// ============================================================================
+// OCR Image Upload & Paste Support (Tesseract.js Traditional Chinese + English)
+// ============================================================================
+const dropZone = document.getElementById("dropZone");
+dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+dropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropZone.classList.remove("dragover");
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+    handleImageFile(e.dataTransfer.files[0]);
+  }
+});
+
+window.addEventListener("paste", (e) => {
+  const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+  for (const item of items) {
+    if (item.type.indexOf("image") !== -1) {
+      const file = item.getAsFile();
+      handleImageFile(file);
+    }
+  }
+});
+
+async function handleImageFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    document.getElementById("previewImg").src = ev.target.result;
+    document.getElementById("ocrResultPanel").style.display = "block";
+    const statusEl = document.getElementById("ocrStatus");
+    const pBar = document.getElementById("progressBar");
+    const pFill = document.getElementById("progressFill");
+    pBar.style.display = "block";
+    pFill.style.width = "10%";
+    statusEl.textContent = "正在載入繁體中文 OCR 辨識引擎並解析圖片...";
+
+    try {
+      const worker = await Tesseract.createWorker("chi_tra+eng", 1, {
+        logger: m => {
+          if (m.status === "recognizing text") {
+            const pct = Math.round(m.progress * 100);
+            pFill.style.width = pct + "%";
+            statusEl.textContent = `辨識進度：${pct}%...`;
+          }
+        }
+      });
+      const ret = await worker.recognize(ev.target.result);
+      await worker.terminate();
+      document.getElementById("ocrRawText").value = ret.data.text;
+      statusEl.textContent = "✅ 圖片辨識完成！請確認右側解析文字後點擊「覆蓋現有庫存並自動帶入計算」。";
+      pFill.style.width = "100%";
+      setTimeout(() => { pBar.style.display = "none"; }, 1200);
+    } catch (err) {
+      statusEl.textContent = "❌ 辨識發生錯誤，請確認網路連線（需載入 OCR 語言包）或直接貼上文字解析。";
+      console.error(err);
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+function parseAndApplyOCR(overwrite) {
+  const raw = document.getElementById("ocrRawText").value;
+  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const parsed = [];
+
+  // Pattern for Taiwan brokerage margin inventory rows:
+  // Example: 光洋科 資 9000 1151123 76.60 413000 152.54 70.00 35000
+  const rowRegex = /^([\u4e00-\u9fa5A-Za-z0-9\-\*]+)\s*(資|券)?\s+([\d,]+)\s+(\d{6,7})\s+([\d,.]+)\s+([\d,]+)\s+([\d,.]+)\s+([\d,.]+)/;
+
+  lines.forEach(line => {
+    const clean = line.replace(/[|｜\[\]]/g, " ").replace(/\s+/g, " ").trim();
+    const m = clean.match(rowRegex);
+    if (m) {
+      const stock = m[1].replace(/資$/, "").trim();
+      const type = m[2] || "資";
+      const shares = Number(m[3].replace(/,/g, "")) || 0;
+      const date = m[4];
+      const buyPrice = Number(m[5].replace(/,/g, "")) || 0;
+      const loan = Number(m[6].replace(/,/g, "")) || 0;
+      const closePrice = Number(m[8].replace(/,/g, "")) || 0;
+      if (stock && shares > 0) {
+        parsed.push({ stock, type, shares, date, buyPrice, loan, closePrice });
+      }
+    }
+  });
+
+  if (parsed.length === 0) {
+    alert("未能自動匹配到標準庫存明細列格式，請檢查辨識文字是否包含「股票名稱 資 股數 結帳日 成交價 融資金額 維持率 收盤價」。");
+    return;
+  }
+
+  if (overwrite) {
+    detailRows = parsed;
+  } else {
+    detailRows = detailRows.concat(parsed);
+  }
+
+  renderDetailTable();
+  autoFillSummaryStocks();
+  syncFromDetail();
+  alert(`成功匯入 ${parsed.length} 筆庫存明細，並已自動更新整戶總市值、總融資金額與個股彙總表！`);
+}
+
+// ============================================================================
+// Export current state to real .xlsx file using SheetJS
+// ============================================================================
+function exportToExcel() {
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: 維持率模擬試算
+  const ws1Data = [
+    ["融資整戶維持率與賣出處分試算表"],
+    [],
+    ["一、目前整戶融資概況"],
+    ["目前擔保品總市值 (元)", "目前融資總金額 (元)", "目前整戶維持率 (%)", "追繳門檻 (%)", "距門檻擔保品市值缺口 (元)"],
+    [
+      Number(document.getElementById("totalMarketValue").value) || 0,
+      Number(document.getElementById("totalMarginLoan").value) || 0,
+      document.getElementById("currentRatioDisplay").textContent,
+      (Number(document.getElementById("thresholdPct").value) || 130) + "%",
+      document.getElementById("shortfallDisplay").textContent
+    ],
+    [],
+    ["二、個股融資庫存彙總（10格）"],
+    ["格次", "股票名稱", "總持有股數", "加權平均買價", "最新收盤價", "目前總市值", "目前總融資金額", "平均實際成數", "平均每股融資額", "個股平均維持率"]
+  ];
+  for (let i = 0; i < 10; i++) {
+    ws1Data.push([
+      i + 1,
+      document.getElementById(`sumStock_${i}`).value,
+      document.getElementById(`sumShares_${i}`).textContent,
+      document.getElementById(`sumAvgBuy_${i}`).textContent,
+      document.getElementById(`sumClose_${i}`).textContent,
+      document.getElementById(`sumMV_${i}`).textContent,
+      document.getElementById(`sumLoan_${i}`).textContent,
+      document.getElementById(`sumRatio_${i}`).textContent,
+      document.getElementById(`sumLoanPerShare_${i}`).textContent,
+      document.getElementById(`sumMaint_${i}`).textContent
+    ]);
+  }
+  ws1Data.push([]);
+  ws1Data.push(["三、賣出個股試算區（10格）"]);
+  ws1Data.push(["格次", "欲賣出個股", "賣出股數", "預計出售價格", "融資成數(%)", "償還方法", "賣出減少市值", "賣出償還融資額", "交割現金差額", "單筆模擬後整戶維持率"]);
+  for (let i = 0; i < 10; i++) {
+    ws1Data.push([
+      i + 1,
+      document.getElementById(`simStock_${i}`).value,
+      document.getElementById(`simShares_${i}`).value || 0,
+      document.getElementById(`simPrice_${i}`).value || "自動收盤價",
+      document.getElementById(`simMargin_${i}`).value || "自動帳面",
+      document.getElementById(`simMethod_${i}`).selectedOptions[0].text,
+      document.getElementById(`simSoldMV_${i}`).textContent,
+      document.getElementById(`simSoldLoan_${i}`).textContent,
+      document.getElementById(`simCashDiff_${i}`).textContent,
+      document.getElementById(`simNewRatio_${i}`).textContent
+    ]);
+  }
+  const ws1 = XLSX.utils.aoa_to_sheet(ws1Data);
+  XLSX.utils.book_append_sheet(wb, ws1, "維持率模擬試算");
+
+  // Sheet 2: 庫存明細表
+  const ws2Data = [["股票名稱", "種類", "持有股數", "結帳日", "買進成交價", "原始融資金額", "最新收盤價", "目前擔保品市值"]];
+  detailRows.forEach(r => {
+    ws2Data.push([r.stock, r.type, r.shares, r.date, r.buyPrice, r.loan, r.closePrice, r.shares * r.closePrice]);
+  });
+  const ws2 = XLSX.utils.aoa_to_sheet(ws2Data);
+  XLSX.utils.book_append_sheet(wb, ws2, "庫存明細表");
+
+  XLSX.writeFile(wb, "融資維持率與賣出處分試算表_匯出.xlsx");
+}
+
+window.onload = initTables;
+</script>
+</body>
+</html>
